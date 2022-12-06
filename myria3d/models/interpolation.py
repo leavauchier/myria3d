@@ -118,14 +118,19 @@ class Interpolator:
         las = self.load_full_las_for_update(src_las=raw_path)
         logits = self.reduce_predicted_logits(las)
 
-        probas = torch.nn.Softmax(dim=1)(logits)
-        for idx, class_name in enumerate(self.classification_dict.values()):
-            if class_name in self.probas_to_save:
-                las[class_name] = probas[:, idx]
-
         preds = torch.argmax(logits, dim=1)
         preds = np.vectorize(self.reverse_mapper.get)(preds)
         las[ChannelNames.PredictedClassification.value] = preds
+
+        del preds
+
+        probas = torch.nn.Softmax(dim=1)(logits)
+
+        del logits
+
+        for idx, class_name in enumerate(self.classification_dict.values()):
+            if class_name in self.probas_to_save:
+                las[class_name] = probas[:, idx]
 
         las[ChannelNames.ProbasEntropy.value] = Categorical(probs=probas).entropy()
 
