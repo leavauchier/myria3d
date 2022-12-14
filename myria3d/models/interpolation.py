@@ -8,7 +8,7 @@ import torch
 from torch.distributions import Categorical
 from torch_scatter import scatter_sum
 
-from myria3d.pctl.dataset.utils import get_pdal_reader
+from myria3d.pctl.dataset.utils import get_pdal_reader, get_pdal_info_metadata
 
 log = logging.getLogger(__name__)
 
@@ -79,9 +79,10 @@ class Interpolator:
         self.idx_in_full_cloud_list += idx_in_original_cloud
 
     @torch.no_grad()
-    def reduce_predicted_logits(self, las):
+    def reduce_predicted_logits(self, nb_points):
         """Interpolate logits to points without predictions using an inverse-distance weightning scheme.
-
+        Args:
+            nb_points: number of points in the las file
         Returns:
             torch.Tensor, torch.Tensor: interpolated logits classification
 
@@ -95,7 +96,7 @@ class Interpolator:
 
         # We scatter_sum logits based on idx, in case there are multiple predictions for a point.
         # scatter_sum reorders logitsbased on index,they therefore match las order.
-        reduced_logits = torch.zeros((len(las), logits.size(1)))
+        reduced_logits = torch.zeros((nb_points, logits.size(1)))
         scatter_sum(logits, torch.from_numpy(idx_in_full_cloud), out=reduced_logits, dim=0)
         # reduced_logits contains logits ordered by their idx in original cloud !
         # Warning : some points may not contain any predictions if they were in small areas.
@@ -115,18 +116,21 @@ class Interpolator:
 
         """
         basename = os.path.basename(raw_path)
-        las = self.load_full_las_for_update(src_las=raw_path)
-        logits = self.reduce_predicted_logits(las)
+        # Read number of points only from las metadata in order to minimize memory usage
+        nb_points = get_pdal_info_metadata(raw_path)["count"]
+        logits = self.reduce_predicted_logits(nb_points)
 
         preds = torch.argmax(logits, dim=1)
         preds = np.vectorize(self.reverse_mapper.get)(preds)
-        las[ChannelNames.PredictedClassification.value] = preds
-
-        del preds
 
         probas = torch.nn.Softmax(dim=1)(logits)
 
         del logits
+
+        las = self.load_full_las_for_update(src_las=raw_path)
+        las[ChannelNames.PredictedClassification.value] = preds
+
+        del preds
 
         for idx, class_name in enumerate(self.classification_dict.values()):
             if class_name in self.probas_to_save:

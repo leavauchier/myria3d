@@ -1,4 +1,5 @@
 import glob
+import json
 import math
 from numbers import Number
 from typing import Dict, List, Literal, Union
@@ -6,6 +7,7 @@ import pdal
 import numpy as np
 from shapely.geometry import Point
 from scipy.spatial import cKDTree
+import subprocess as sp
 from tqdm import tqdm
 
 SPLIT_TYPE = Union[Literal["train"], Literal["val"], Literal["test"]]
@@ -78,6 +80,25 @@ def get_pdal_reader(las_path: str) -> pdal.Reader.las:
         nosrs=True,
         override_srs="EPSG:2154",
     )
+
+
+def get_pdal_info_metadata(las_path: str) -> Dict:
+    """Read las metadata using pdal info
+    Args:
+        las_path (str): input LAS path to read.
+    Returns:
+        (dict): dictionary containing metadata from the las file
+
+    """
+    r = sp.run(["pdal", "info", "--metadata", las_path], capture_output=True)
+    if r.returncode == 1:
+        msg = r.stderr.decode()
+        raise RuntimeError(msg)
+
+    output = r.stdout.decode()
+    json_info = json.loads(output)
+
+    return json_info["metadata"]
 
 
 # hdf5, iterable
